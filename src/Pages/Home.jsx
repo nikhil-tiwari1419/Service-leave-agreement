@@ -116,7 +116,7 @@ function Home() {
             <h1 className={`text-4xl md:text-5xl font-bold mb-4 ${
               theme === "dark" ? "text-white" : "text-gray-900"
             }`}>
-              Our Services
+              <span className=''>Our <span className='font-mono'>Services</span></span>
             </h1>
             <p className={`text-lg md:text-xl ${
               theme === "dark" ? "text-gray-300" : "text-gray-600"
@@ -150,7 +150,7 @@ function Home() {
                   </h3>
                 </div>
 
-                {/* Image Section - Actual Size */}
+                {/* Image Section */}
                 <div className="-mt-16 px-6 mb-4 relative z-10">
                   <div className="bg-white rounded-xl overflow-hidden shadow-lg transform transition-transform duration-300 group-hover:scale-105">
                     <img

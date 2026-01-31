@@ -32,9 +32,7 @@ function Navbar() {
             </div>
             <h1 className={`text-xl font-bold transition-colors ${theme === "dark" ? "text-white" : "text-gray-900"
               }`}>
-              {/* 
- */}
-              Griev <span className={`${theme === "dark"
+              Griev<span className={`${theme === "dark"
                   ? "bg-gradient-to-br from-gray-200 to-purple-600 group-hover:shadow-lg group-hover:shadow-blue-500/50"
                   : "bg-gradient-to-br from-blue-400 to-green-400 group-hover:shadow-lg group-hover:shadow-blue-400/50"
                 } bg-clip-text text-transparent`}>Ease</span>
@@ -46,6 +44,7 @@ function Navbar() {
             <ul className="flex gap-1 items-center">
               <NavItem to="/" label="Home" theme={theme} />
               <NavItem to="/dashboard" label="Dashboard" theme={theme} />
+              <NavItem to="/review" label="Review" theme={theme} /> 
               <NavItem to="/contact" label="Contact" theme={theme} />
             </ul>
 
@@ -115,6 +114,7 @@ function Navbar() {
           <ul className="space-y-2">
             <MobileNavItem to="/" label="Home" theme={theme} onClick={() => setIsOpen(false)} />
             <MobileNavItem to="/dashboard" label="Dashboard" theme={theme} onClick={() => setIsOpen(false)} />
+            <MobileNavItem to="/review" label="Review" theme={theme} onClick={() => setIsOpen(false)} />
             <MobileNavItem to="/contact" label="Contact" theme={theme} onClick={() => setIsOpen(false)} />
           </ul>
 

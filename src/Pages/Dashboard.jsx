@@ -1,39 +1,15 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Navbar from "../Components/Navbar";
 import Issues from "../Components/Issues";
 import Location from "../Components/Location";
-import Monitor from "../Components/Monitor"; // Import Monitor
+import Monitor from "../Components/Monitor";
+import Voice from "../Components/Voice";
+import SelectDept, { DEPARTMENTS } from "../Components/SelectDept";
 import { useTheme } from "../Context/Theme";
 import Footer from "../Components/Footer";
-import { X, Megaphone, Upload, AlertCircle, CheckCircle2, Camera } from 'lucide-react';
-
-const ISSUE_DEPARTMENTS = [
-  {
-    department: "Electric Department",
-    keywords: ["light", "fan", "power", "electric", "current", "wire", "tower", "failure", "electricity"],
-    color: "from-yellow-400 to-yellow-600"
-  },
-  {
-    department: "Plumbing Department",
-    keywords: ["water", "pipe", "leak", "tap", "drain", "plumbing", "sewer"],
-    color: "from-blue-400 to-blue-600"
-  },
-  {
-    department: "IT Support",
-    keywords: ["wifi", "internet", "network", "computer", "connection"],
-    color: "from-purple-400 to-purple-600"
-  },
-  {
-    department: "Maintenance Department",
-    keywords: ["repair", "broken", "damage", "fix", "maintenance"],
-    color: "from-green-400 to-green-600"
-  },
-  {
-    department: "Local NMC Department",
-    keywords: ["clean", "garbage", "trash", "dirty", "litter", "waste", "sanitation"],
-    color: "from-pink-400 to-pink-600"
-  },
-];
+import { 
+  X, Megaphone, Upload, AlertCircle, CheckCircle2, Camera 
+} from 'lucide-react';
 
 function Dashboard() {
   const { theme } = useTheme();
@@ -41,43 +17,32 @@ function Dashboard() {
   // Form States
   const [isIssueOpen, setIsIssueOpen] = useState(false);
   const [issueText, setIssueText] = useState("");
-  const [department, setDepartment] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [pincode, setPincode] = useState("");
   const [locationData, setLocationData] = useState(null);
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  
+
   // UI States
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
-  // Store raised issues
-  const [raisedIssues, setRaisedIssues] = useState([]);
+  // Store raised issues (local storage)
+  const [raisedIssues, setRaisedIssues] = useState(() => {
+    const saved = localStorage.getItem('raisedIssues');
+    return saved ? JSON.parse(saved) : [];
+  });
 
-  // Auto detect department based on keywords
-  const detectDepartment = (text) => {
-    const lowerText = text.toLowerCase();
+  // Save issues to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('raisedIssues', JSON.stringify(raisedIssues));
+  }, [raisedIssues]);
 
-    for (let dept of ISSUE_DEPARTMENTS) {
-      if (dept.keywords.some(keyword => lowerText.includes(keyword))) {
-        return dept.department;
-      }
-    }
-    return "";
-  };
-
-  // Handle issue text change and auto-detect department
+  // Handle issue text change
   const handleIssueChange = (e) => {
     const value = e.target.value;
     setIssueText(value);
-
-    if (value.trim()) {
-      const detectedDept = detectDepartment(value);
-      if (detectedDept) {
-        setDepartment(detectedDept);
-      }
-    }
 
     if (errors.issueText) {
       setErrors(prev => ({ ...prev, issueText: "" }));
@@ -107,7 +72,7 @@ function Dashboard() {
       }
 
       setImage(file);
-      
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result);
@@ -136,8 +101,8 @@ function Dashboard() {
       newErrors.issueText = "Issue description should be at least 10 characters";
     }
 
-    if (!department) {
-      newErrors.department = "Please select a department";
+    if (!departmentId) {
+      newErrors.department = "Please select a department or let AI detect it";
     }
 
     if (!pincode) {
@@ -150,7 +115,7 @@ function Dashboard() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle form submission
+  // Handle form submission (no backend - store locally)
   const onSubmitHandler = async (e) => {
     e.preventDefault();
 
@@ -161,38 +126,27 @@ function Dashboard() {
     setIsSubmitting(true);
 
     try {
-      const formData = new FormData();
-      formData.append('issue', issueText);
-      formData.append('department', department);
-      formData.append('pincode', pincode);
-      
-      if (locationData) {
-        formData.append('location', JSON.stringify(locationData));
-      }
-      
-      if (image) {
-        formData.append('image', image);
-      }
-
       // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const selectedDept = DEPARTMENTS.find(d => d._id === departmentId);
 
       // Create new issue object
       const newIssue = {
-        id: `ISS-${String(raisedIssues.length + 1).padStart(3, '0')}`,
+        id: `ISS-${Date.now()}`,
         issueText,
-        department,
+        department: selectedDept?.name || "Unknown",
+        departmentId,
         pincode,
         locationData,
-        image: image?.name,
+        image: imagePreview, // Store base64 image
+        imageName: image?.name,
         timestamp: new Date().toISOString(),
         status: 'pending',
         reviewed: false
       };
 
-      console.log('Submitted Issue:', newIssue);
-
-      // Add to raised issues
+      // Add to raised issues (local storage)
       setRaisedIssues(prev => [newIssue, ...prev]);
 
       setSubmitSuccess(true);
@@ -205,7 +159,7 @@ function Dashboard() {
 
     } catch (error) {
       console.error("Error submitting issue:", error);
-      setErrors({ submit: "Failed to submit issue. Please try again." });
+      setErrors({ submit: error.message || "Failed to submit issue. Please try again." });
     } finally {
       setIsSubmitting(false);
     }
@@ -214,7 +168,7 @@ function Dashboard() {
   // Reset form
   const resetForm = () => {
     setIssueText("");
-    setDepartment("");
+    setDepartmentId("");
     setPincode("");
     setLocationData(null);
     setImage(null);
@@ -229,7 +183,7 @@ function Dashboard() {
     setSubmitSuccess(false);
   };
 
-  // Handle issue completion (for testing)
+  // Handle issue completion
   const handleCompleteIssue = (issueId) => {
     setRaisedIssues(prev =>
       prev.map(issue =>
@@ -242,10 +196,8 @@ function Dashboard() {
 
   // Handle review submission
   const handleReview = (issue) => {
-    // Navigate to review page or open review modal
     console.log('Review issue:', issue);
-    // You can implement navigation to Review page here
-    // window.location.href = '/review';
+    // Can implement review modal here
   };
 
   return (
@@ -260,7 +212,7 @@ function Dashboard() {
         }`}
       >
         <main className="flex-grow max-w-6xl mx-auto w-full px-4 pt-24 pb-8">
-          
+
           {/* Raised Issues Monitor Section */}
           {raisedIssues.length > 0 && (
             <div className="mb-8">
@@ -304,8 +256,8 @@ function Dashboard() {
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <div
                 className={`w-full max-w-2xl rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto ${
-                  theme === "dark" 
-                    ? "bg-slate-800 text-white" 
+                  theme === "dark"
+                    ? "bg-slate-800 text-white"
                     : "bg-white text-black"
                 }`}
               >
@@ -320,8 +272,8 @@ function Dashboard() {
 
                 {/* Header */}
                 <div className={`sticky top-0 z-10 px-6 py-4 border-b rounded-t-2xl ${
-                  theme === "dark" 
-                    ? "bg-slate-800 border-gray-700" 
+                  theme === "dark"
+                    ? "bg-slate-800 border-gray-700"
                     : "bg-white border-gray-200"
                 }`}>
                   <div className="flex items-center justify-between">
@@ -353,83 +305,34 @@ function Dashboard() {
                     <div className="flex gap-3">
                       <AlertCircle size={20} className="text-blue-500 flex-shrink-0 mt-0.5" />
                       <p className="text-sm">
-                        This platform ensures transparency in public service delivery. 
+                        This platform ensures transparency in public service delivery.
                         Please raise genuine issues only. Misuse may lead to strict action.
                       </p>
                     </div>
                   </div>
 
-                  {/* Issue Description */}
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">
-                      Issue Description <span className="text-red-500">*</span>
-                    </label>
-                    <textarea
-                      value={issueText}
-                      onChange={handleIssueChange}
-                      placeholder="Describe your issue in detail (minimum 10 characters)..."
-                      rows="4"
-                      className={`w-full px-4 py-3 rounded-lg border-2 transition-all outline-none resize-none ${
-                        errors.issueText
-                          ? "border-red-500 focus:border-red-600"
-                          : theme === "dark"
-                          ? "bg-slate-700 border-gray-600 focus:border-blue-500 text-white"
-                          : "bg-white border-gray-300 focus:border-blue-500 text-black"
-                      }`}
-                    />
-                    {errors.issueText && (
-                      <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
-                        <AlertCircle size={14} /> {errors.issueText}
-                      </p>
-                    )}
-                    <p className={`text-xs mt-1 ${
-                      theme === "dark" ? "text-gray-400" : "text-gray-500"
-                    }`}>
-                      {issueText.length} characters
-                    </p>
-                  </div>
+                  {/* Voice Input Component */}
+                  <Voice
+                    value={issueText}
+                    onChange={handleIssueChange}
+                    placeholder="Describe your issue in detail (minimum 10 characters)..."
+                    rows={4}
+                  />
 
-                  {/* Department */}
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">
-                      Department <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={department}
-                      onChange={(e) => {
-                        setDepartment(e.target.value);
-                        if (errors.department) {
-                          setErrors(prev => ({ ...prev, department: "" }));
-                        }
-                      }}
-                      className={`w-full px-4 py-3 rounded-lg border-2 transition-all outline-none ${
-                        errors.department
-                          ? "border-red-500 focus:border-red-600"
-                          : theme === "dark"
-                          ? "bg-slate-700 border-gray-600 focus:border-blue-500 text-white"
-                          : "bg-white border-gray-300 focus:border-blue-500 text-black"
-                      }`}
-                    >
-                      <option value="">-- Auto-detected or Select Manually --</option>
-                      {ISSUE_DEPARTMENTS.map((dept) => (
-                        <option key={dept.department} value={dept.department}>
-                          {dept.department}
-                        </option>
-                      ))}
-                    </select>
-                    {errors.department && (
-                      <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
-                        <AlertCircle size={14} /> {errors.department}
-                      </p>
-                    )}
-                    {department && !errors.department && (
-                      <p className={`text-sm mt-1 flex items-center gap-1 ${
-                        theme === "dark" ? "text-green-400" : "text-green-600"
-                      }`}>
-                        <CheckCircle2 size={14} /> Department selected: {department}
-                      </p>
-                    )}
-                  </div>
+                  {errors.issueText && (
+                    <p className="text-red-500 text-sm -mt-3 flex items-center gap-1">
+                      <AlertCircle size={14} /> {errors.issueText}
+                    </p>
+                  )}
+
+                  {/* AI Department Selection Component */}
+                  <SelectDept
+                    issueText={issueText}
+                    departmentId={departmentId}
+                    setDepartmentId={setDepartmentId}
+                    error={errors.department}
+                    setError={(error) => setErrors(prev => ({ ...prev, department: error }))}
+                  />
 
                   {/* Location Component */}
                   <Location
@@ -445,7 +348,7 @@ function Dashboard() {
                     <label className="block text-sm font-semibold mb-2">
                       Upload Image (Optional)
                     </label>
-                    
+
                     {!imagePreview ? (
                       <label
                         className={`w-full border-2 border-dashed rounded-lg p-6 cursor-pointer transition-all flex flex-col items-center justify-center gap-3 ${
@@ -491,7 +394,7 @@ function Dashboard() {
                         </div>
                       </div>
                     )}
-                    
+
                     {errors.image && (
                       <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
                         <AlertCircle size={14} /> {errors.image}
@@ -543,4 +446,3 @@ function Dashboard() {
 }
 
 export default Dashboard;
-

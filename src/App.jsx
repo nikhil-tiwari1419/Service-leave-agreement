@@ -10,7 +10,7 @@ import { GrievanceProvider } from './Context/GrievanceContext';
 
 function App() {
   return (
-    <>
+    
       <GrievanceProvider>
 
         <Toaster
@@ -25,7 +25,7 @@ function App() {
           <Route path='/Review' element={<Review />} />
         </Routes>
       </GrievanceProvider>
-    </>
+   
   )
 }
 

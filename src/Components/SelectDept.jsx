@@ -50,17 +50,18 @@ function SelectDept({ issueText, departmentId, setDepartmentId, error, setError 
 
   // AI-powered department detection using Claude API
   const detectDepartmentWithAI = async (text) => {
-    if (!text.trim() || text.trim().length < 15) {
+    if (!text.trim() || text.trim().length < 10) {
       setAiAnalysisResult(null);
       return null;
     }
 
     // Prevent re-analyzing the same text
-    if (text.trim() === lastAnalyzedTextRef.current) {
+    const normalizedText = text.trim().toLowerCase();
+    if (normalizedText === lastAnalyzedTextRef.current) {
       return;
     }
 
-    lastAnalyzedTextRef.current = text.trim();
+    lastAnalyzedTextRef.current = normalizedText;
     setIsAnalyzingWithAI(true);
 
     try {
@@ -71,30 +72,63 @@ function SelectDept({ issueText, departmentId, setDepartmentId, error, setError 
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 500,
+          max_tokens: 800,
           messages: [
             {
               role: "user",
-              content: `You are an intelligent department classification assistant for a public grievance system in India.
+              content: `You are a multilingual department classification AI for Indian public grievances.
 
-Available departments and their responsibilities:
-${DEPARTMENTS.map(d => `- ${d.name}: ${d.description}`).join('\n')}
+IMPORTANT: The user's complaint may be in ANY language including:
+- English
+- Hindi (हिंदी)
+- Hinglish (Hindi-English Mix) - e.g., "light nahi aa rahi", "bijli ka problem hai"
+- Marathi (मराठी)
+- Tamil (தமிழ்)
+- Telugu (తెలుగు)
+- Bengali (বাংলা)
+- Gujarati (ગુજરાતી)
+- Kannada (ಕನ್ನಡ)
+- Malayalam (മലയാളം)
+- Punjabi (ਪੰਜਾਬੀ)
+- Urdu (اردو)
+- Odia (ଓଡ଼ିଆ)
+- Or any mix of these languages (including Hinglish/Tanglish etc.)
 
-User's issue description (may be in any Indian language or English): "${text}"
+Available Departments:
+1. Electrical Maintenance Department - street lights, electrical poles, power supply, electricity issues, transformers
+2. Water Supply & Sewerage Department - water supply, pipes, leaks, taps, drains, sewers, plumbing, sewage
+3. Information Technology Services Department - wifi, internet, network, computers, connectivity, digital services
+4. Infrastructure Maintenance Department - roads, buildings, construction, repairs, damages, potholes, cracks
+5. Solid Waste Management Department - garbage, trash, cleanliness, waste collection, dustbins, disposal
 
-Your task:
-1. Analyze the issue carefully
-2. Identify the most appropriate department
-3. Provide a brief reason (1 sentence)
+User's complaint: "${text}"
 
-Respond in this EXACT JSON format:
+ANALYZE THE COMPLAINT IN ANY LANGUAGE and match it to ONE department from the list above.
+
+Common terms to recognize (including Hinglish):
+- Light/बत्ती/light nahi aa rahi/बिजली गई/current nahi hai/light chali gayi = Electrical
+- Water/पानी/paani nahi aa raha/water supply band hai/नल से पानी नहीं/tap me paani nahi = Water Supply
+- Road/रस्ता/road kharab hai/गड्ढा है/pothole hai/सड़क टूटी/sadak tuti hui = Infrastructure
+- Garbage/कचरा/kachra pada hai/गंदगी/cleaning nahi ho rahi/garbage nahi uthaya = Waste Management
+- Internet/इंटरनेट/wifi nahi chal raha/network problem/internet slow hai/connection issue = IT Services
+
+Hinglish Examples (Hindi-English mix - VERY COMMON):
+- "Street light nahi jal rahi hai" = Electrical
+- "Paani ka bahut problem hai yaar" = Water Supply
+- "Road pe bada sa pothole aa gaya hai" = Infrastructure
+- "Kachra collection nahi ho raha properly" = Waste Management
+- "WiFi bahut slow chal raha hai" = IT Services
+- "Bijli ka pole gir gaya hai" = Electrical
+- "Naali overflow ho rahi hai" = Water Supply
+- "Footpath toot gaya hai" = Infrastructure
+- "Dustbin bahut ganda hai" = Waste Management
+
+Return ONLY this JSON (no other text):
 {
-  "department": "exact department name from the list",
-  "reason": "brief explanation",
+  "department": "exact department name from list above",
+  "reason": "brief explanation in English",
   "confidence": "high/medium/low"
-}
-
-Only output valid JSON, nothing else.`
+}`
             }
           ],
         })
@@ -112,22 +146,40 @@ Only output valid JSON, nothing else.`
       
       const analysis = JSON.parse(aiResponse);
       
-      // Find matching department
-      const matchedDept = DEPARTMENTS.find(d => 
-        d.name.toLowerCase() === analysis.department.toLowerCase()
-      );
+      // Find matching department (more flexible matching)
+      const matchedDept = DEPARTMENTS.find(d => {
+        const deptNameLower = d.name.toLowerCase();
+        const analysisDeptLower = analysis.department.toLowerCase();
+        
+        // Try exact match first
+        if (deptNameLower === analysisDeptLower) return true;
+        
+        // Try partial matches for common variations
+        if (analysisDeptLower.includes('electrical') && deptNameLower.includes('electrical')) return true;
+        if (analysisDeptLower.includes('water') && deptNameLower.includes('water')) return true;
+        if (analysisDeptLower.includes('it ') || analysisDeptLower.includes('information')) {
+          if (deptNameLower.includes('information')) return true;
+        }
+        if (analysisDeptLower.includes('infrastructure') && deptNameLower.includes('infrastructure')) return true;
+        if (analysisDeptLower.includes('waste') && deptNameLower.includes('waste')) return true;
+        
+        return false;
+      });
 
       if (matchedDept) {
         const result = {
           ...analysis,
-          departmentId: matchedDept._id
+          departmentId: matchedDept._id,
+          department: matchedDept.name // Ensure we use the exact department name
         };
         setAiAnalysisResult(result);
         setDepartmentId(matchedDept._id);
+        if (error) setError("");
         return matchedDept._id;
       }
       
-      return null;
+      // If no match, try keyword fallback
+      return detectDepartmentByKeywords(text);
     } catch (error) {
       console.error("AI department detection failed:", error);
       // Fallback to keyword-based detection
@@ -137,16 +189,115 @@ Only output valid JSON, nothing else.`
     }
   };
 
-  // Fallback keyword-based detection
+  // Fallback keyword-based detection with multilingual support including Hinglish
   const detectDepartmentByKeywords = (text) => {
     const lowerText = text.toLowerCase();
     let maxScore = 0;
     let bestMatch = null;
 
+    // Extended multilingual keywords including Hinglish
+    const multilingualKeywords = {
+      electrical: [
+        // English
+        'light', 'fan', 'power', 'electric', 'current', 'wire', 'bulb', 'switch', 'electricity', 'voltage', 'transformer', 'pole',
+        // Hindi
+        'बत्ती', 'लाइट', 'बिजली', 'करंट', 'पंखा', 'ट्रांसफार्मर', 'प्रकाश', 'वीज',
+        // Hinglish (romanized Hindi + mixed)
+        'batti', 'bijli', 'current', 'light nahi', 'bijli nahi', 'current nahi', 'light chali gayi', 
+        'bijli gayi', 'light aa rahi', 'power cut', 'transformer', 'pole gir gaya', 'pankha',
+        'street light', 'light jal rahi', 'bulb phut gaya',
+        // Telugu
+        'లైట్', 'విద్యుత్', 'కరెంట్', 'ఫ్యాన్',
+        // Kannada
+        'ಬೆಳಕು', 'ವಿದ್ಯುತ್', 'ಫ್ಯಾನ್',
+        // Malayalam
+        'വെളിച്ചം', 'വൈദ്യുതി', 'ഫാൻ'
+      ],
+      water: [
+        // English
+        'water', 'pipe', 'leak', 'tap', 'drain', 'sewer', 'plumbing', 'sewage', 'sanitation', 'overflow', 'blockage',
+        // Hindi
+        'पानी', 'नल', 'पाइप', 'लीक', 'नाली', 'जल', 'पाणी',
+        // Hinglish
+        'paani', 'pani', 'nal', 'pipe', 'leak', 'naali', 'nali', 'drainage', 'paani nahi', 
+        'water nahi', 'nal se paani', 'pipe phut gaya', 'water supply', 'paani aa raha',
+        'water leakage', 'naali overflow', 'gutter', 'sewerage', 'drain block',
+        'tap se paani nahi', 'supply band hai',
+        // Telugu
+        'నీరు', 'కుళాయి', 'పైపు', 'డ్రైనేజీ',
+        // Kannada
+        'ನೀರು', 'ಟ್ಯಾಪ್', 'ಪೈಪ್',
+        // Malayalam
+        'വെള്ളം', 'കുഴൽ', 'ടാപ്പ്'
+      ],
+      it: [
+        // English
+        'wifi', 'internet', 'network', 'computer', 'connection', 'server', 'website', 'online', 'digital', 'portal',
+        // Hindi
+        'इंटरनेट', 'वाईफाई', 'कंप्यूटर', 'नेटवर्क',
+        // Hinglish
+        'wifi nahi', 'internet slow', 'network problem', 'connection issue', 'wifi chal raha',
+        'internet nahi chal raha', 'broadband', 'wifi ka problem', 'net slow hai',
+        'website nahi khul raha', 'online nahi ho raha', 'portal',
+        // Telugu
+        'ఇంటర్నెట్', 'వైఫై', 'కంప్యూటర్',
+        // Kannada
+        'ಇಂಟರ್ನೆಟ್', 'ವೈಫೈ',
+        // Malayalam
+        'ഇന്റർനെറ്റ്', 'വൈഫൈ'
+      ],
+      infrastructure: [
+        // English
+        'repair', 'broken', 'damage', 'fix', 'maintenance', 'road', 'building', 'construction', 'crack', 'pothole', 'pavement',
+        // Hindi
+        'रोड', 'रस्ता', 'गड्ढा', 'सड़क', 'मरम्मत', 'मार्ग', 'इमारत',
+        // Hinglish
+        'road', 'sadak', 'rasta', 'pothole', 'gadda', 'gaddha', 'road kharab', 'sadak tuti',
+        'footpath', 'pavement', 'road repair', 'sadak ki halat', 'road condition',
+        'building', 'construction', 'crack aa gaya', 'toot gaya', 'damage hua',
+        'maintenance', 'repair', 'broken hai', 'kharab hai',
+        // Telugu
+        'రోడ్డు', 'గొయ్యి', 'బిల్డింగ్',
+        // Kannada
+        'ರಸ್ತೆ', 'ಕುಂಡಿ', 'ಕಟ್ಟಡ',
+        // Malayalam
+        'റോഡ്', 'കുഴി', 'കെട്ടിടം'
+      ],
+      waste: [
+        // English
+        'clean', 'garbage', 'trash', 'dirty', 'litter', 'waste', 'dustbin', 'sweeping', 'disposal', 'collection',
+        // Hindi
+        'कचरा', 'गंदगी', 'सफाई', 'कूड़ा', 'डस्टबिन', 'कूड़ादान', 'स्वच्छता',
+        // Hinglish
+        'kachra', 'kachraa', 'kuda', 'garbage', 'gandagi', 'safai', 'dustbin', 'cleaning',
+        'kachra collection', 'garbage nahi uthaya', 'dustbin bhara hua', 'gandagi hai',
+        'safai nahi ho rahi', 'waste collection', 'kuda pada hai', 'sweeper nahi aaya',
+        'cleaning nahi hui', 'ganda hai', 'dirty hai', 'litter pada hai',
+        // Telugu
+        'చెత్త', 'వ్యర్థాలు', 'శుభ్రత',
+        // Kannada
+        'ಕಸ', 'ಕೊಳಕು', 'ಸ್ವಚ್ಛತೆ',
+        // Malayalam
+        'മാലിന്യം', 'മാലിന്യനിര്‍മാര്‍ജനം'
+      ]
+    };
+
     for (let dept of DEPARTMENTS) {
       let score = 0;
-      dept.keywords.forEach(keyword => {
-        if (lowerText.includes(keyword)) {
+      let categoryKey = '';
+      
+      // Determine category
+      if (dept.name.includes('Electrical')) categoryKey = 'electrical';
+      else if (dept.name.includes('Water')) categoryKey = 'water';
+      else if (dept.name.includes('Information')) categoryKey = 'it';
+      else if (dept.name.includes('Infrastructure')) categoryKey = 'infrastructure';
+      else if (dept.name.includes('Waste')) categoryKey = 'waste';
+      
+      // Check both original keywords and multilingual keywords
+      const allKeywords = [...dept.keywords, ...(multilingualKeywords[categoryKey] || [])];
+      
+      allKeywords.forEach(keyword => {
+        if (lowerText.includes(keyword.toLowerCase())) {
           score++;
         }
       });
@@ -160,12 +311,13 @@ Only output valid JSON, nothing else.`
     if (bestMatch && maxScore > 0) {
       const result = {
         department: bestMatch.name,
-        reason: `Detected based on keywords: ${bestMatch.keywords.filter(k => lowerText.includes(k)).join(', ')}`,
+        reason: `Detected based on ${maxScore} keyword match${maxScore > 1 ? 'es' : ''} in your description`,
         confidence: maxScore >= 3 ? 'high' : maxScore >= 2 ? 'medium' : 'low',
         departmentId: bestMatch._id
       };
       setAiAnalysisResult(result);
       setDepartmentId(bestMatch._id);
+      if (error) setError("");
       return bestMatch._id;
     }
 
@@ -180,11 +332,12 @@ Only output valid JSON, nothing else.`
     }
 
     // Only analyze if text is long enough and hasn't been analyzed yet
-    if (issueText.trim().length >= 15 && issueText.trim() !== lastAnalyzedTextRef.current) {
+    const normalizedText = issueText.trim().toLowerCase();
+    if (issueText.trim().length >= 10 && normalizedText !== lastAnalyzedTextRef.current) {
       debounceTimerRef.current = setTimeout(() => {
         detectDepartmentWithAI(issueText);
-      }, 2000); // Wait 2 seconds after user stops typing
-    } else if (issueText.trim().length < 15) {
+      }, 1500); // Wait 1.5 seconds after user stops typing
+    } else if (issueText.trim().length < 10) {
       setAiAnalysisResult(null);
       lastAnalyzedTextRef.current = '';
     }

@@ -5,14 +5,18 @@ import Location from "../Components/Location";
 import Monitor from "../Components/Monitor";
 import Voice from "../Components/Voice";
 import SelectDept, { DEPARTMENTS } from "../Components/SelectDept";
+import GrievanceExamplesGuide from "../Components/GrievanceExamplesGuide";
 import { useTheme } from "../Context/Theme";
 import Footer from "../Components/Footer";
+import { useUser, useClerk } from "@clerk/clerk-react";
 import { 
-  X, Megaphone, Upload, AlertCircle, CheckCircle2, Camera 
+  X, Megaphone, Upload, AlertCircle, CheckCircle2, Camera, LogIn 
 } from 'lucide-react';
 
 function Dashboard() {
   const { theme } = useTheme();
+  const { user, isLoaded } = useUser();
+  const { openSignIn } = useClerk();
 
   // Form States
   const [isIssueOpen, setIsIssueOpen] = useState(false);
@@ -28,22 +32,45 @@ function Dashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
-  // Store raised issues (local storage)
+  // Store raised issues (local storage per user)
   const [raisedIssues, setRaisedIssues] = useState(() => {
-    const saved = localStorage.getItem('raisedIssues');
+    if (!user) return [];
+    const saved = localStorage.getItem(`raisedIssues_${user.id}`);
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Save issues to localStorage whenever they change
+  // Save issues to localStorage whenever they change (per user)
   useEffect(() => {
-    localStorage.setItem('raisedIssues', JSON.stringify(raisedIssues));
-  }, [raisedIssues]);
+    if (user) {
+      localStorage.setItem(`raisedIssues_${user.id}`, JSON.stringify(raisedIssues));
+    }
+  }, [raisedIssues, user]);
+
+  // Load issues when user logs in
+  useEffect(() => {
+    if (user) {
+      const saved = localStorage.getItem(`raisedIssues_${user.id}`);
+      if (saved) {
+        setRaisedIssues(JSON.parse(saved));
+      }
+    } else {
+      setRaisedIssues([]);
+    }
+  }, [user]);
 
   // Handle issue text change
   const handleIssueChange = (e) => {
     const value = e.target.value;
     setIssueText(value);
 
+    if (errors.issueText) {
+      setErrors(prev => ({ ...prev, issueText: "" }));
+    }
+  };
+
+  // Handle using an example
+  const handleUseExample = (exampleText) => {
+    setIssueText(exampleText);
     if (errors.issueText) {
       setErrors(prev => ({ ...prev, issueText: "" }));
     }
@@ -143,7 +170,9 @@ function Dashboard() {
         imageName: image?.name,
         timestamp: new Date().toISOString(),
         status: 'pending',
-        reviewed: false
+        reviewed: false,
+        userId: user.id,
+        userName: user.fullName || user.firstName || "Anonymous"
       };
 
       // Add to raised issues (local storage)
@@ -200,6 +229,15 @@ function Dashboard() {
     // Can implement review modal here
   };
 
+  // Handle raising issue - check authentication
+  const handleRaiseIssue = () => {
+    if (!user) {
+      openSignIn();
+      return;
+    }
+    setIsIssueOpen(true);
+  };
+
   return (
     <>
       <Navbar />
@@ -213,8 +251,8 @@ function Dashboard() {
       >
         <main className="flex-grow max-w-6xl mx-auto w-full px-4 pt-24 pb-8">
 
-          {/* Raised Issues Monitor Section */}
-          {raisedIssues.length > 0 && (
+          {/* Raised Issues Monitor Section - Only show if logged in */}
+          {isLoaded && user && raisedIssues.length > 0 && (
             <div className="mb-8">
               <h2 className={`text-3xl font-bold mb-6 ${
                 theme === "dark" ? "text-white" : "text-gray-900"
@@ -234,25 +272,67 @@ function Dashboard() {
             </div>
           )}
 
+          {/* Login prompt if not logged in and trying to view issues */}
+          {isLoaded && !user && (
+            <div className={`mb-8 p-8 rounded-2xl border-2 border-dashed text-center ${
+              theme === "dark"
+                ? "bg-slate-800/50 border-gray-600"
+                : "bg-white/50 border-gray-300"
+            }`}>
+              <LogIn size={48} className={`mx-auto mb-4 ${
+                theme === "dark" ? "text-gray-400" : "text-gray-500"
+              }`} />
+              <h3 className={`text-2xl font-bold mb-2 ${
+                theme === "dark" ? "text-white" : "text-gray-900"
+              }`}>
+                Login Required
+              </h3>
+              <p className={`mb-6 ${
+                theme === "dark" ? "text-gray-400" : "text-gray-600"
+              }`}>
+                Please login to view your raised issues and track their status
+              </p>
+              <button
+                onClick={openSignIn}
+                className={`px-8 py-3 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 ${
+                  theme === "dark"
+                    ? "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg shadow-blue-500/30"
+                    : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg shadow-blue-500/30"
+                }`}
+              >
+                Login Now
+              </button>
+            </div>
+          )}
+
           <Issues />
 
           {/* Raise Issue Button */}
           <div className="mt-8">
             <button
-              onClick={() => setIsIssueOpen(true)}
+              onClick={handleRaiseIssue}
               className={`w-full sm:w-auto px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-3 shadow-lg ${
                 theme === "dark"
                   ? "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-blue-500/30"
                   : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-blue-500/30"
               }`}
             >
-              <Megaphone size={24} />
-              Raise New Issue
+              {!user ? (
+                <>
+                  <LogIn size={24} />
+                  Login to Raise Issue
+                </>
+              ) : (
+                <>
+                  <Megaphone size={24} />
+                  Raise New Issue
+                </>
+              )}
             </button>
           </div>
 
-          {/* Modal */}
-          {isIssueOpen && (
+          {/* Modal - Only accessible when logged in */}
+          {isIssueOpen && user && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm">
               <div
                 className={`w-full max-w-2xl rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto ${
@@ -311,11 +391,16 @@ function Dashboard() {
                     </div>
                   </div>
 
+                  {/* Examples Guide */}
+                  <div className="flex justify-center">
+                    <GrievanceExamplesGuide onUseExample={handleUseExample} />
+                  </div>
+
                   {/* Voice Input Component */}
                   <Voice
                     value={issueText}
                     onChange={handleIssueChange}
-                    placeholder="Describe your issue in detail (minimum 10 characters)..."
+                    placeholder="Describe your issue in detail (minimum 20 characters)... Example: Street light not working on Main Road for 3 days"
                     rows={4}
                   />
 

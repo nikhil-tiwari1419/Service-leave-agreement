@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Brain, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Brain, Sparkles, AlertCircle, CheckCircle2, Lock, Edit3, XCircle, Shield } from 'lucide-react';
 import { useTheme } from '../Context/Theme';
 
 // Department definitions
@@ -7,50 +7,69 @@ export const DEPARTMENTS = [
   {
     _id: "dept_electrical",
     name: "Electrical Maintenance Department",
-    keywords: ["light", "fan", "power", "electric", "current", "wire", "bulb", "switch", "electricity", "voltage", "transformer", "pole"],
     color: "from-yellow-400 to-yellow-600",
     description: "Handles street lights, electrical poles, power supply issues"
   },
   {
     _id: "dept_water",
     name: "Water Supply & Sewerage Department",
-    keywords: ["water", "pipe", "leak", "tap", "drain", "sewer", "plumbing", "sewage", "sanitation", "overflow", "blockage"],
     color: "from-blue-400 to-blue-600",
     description: "Handles water supply, drainage, sewerage issues"
   },
   {
     _id: "dept_it",
     name: "Information Technology Services Department",
-    keywords: ["wifi", "internet", "network", "computer", "connection", "server", "website", "online", "digital", "portal"],
     color: "from-purple-400 to-purple-600",
     description: "Handles IT infrastructure, digital services, connectivity"
   },
   {
     _id: "dept_infrastructure",
     name: "Infrastructure Maintenance Department",
-    keywords: ["repair", "broken", "damage", "fix", "maintenance", "road", "building", "construction", "crack", "pothole", "pavement"],
     color: "from-green-400 to-green-600",
     description: "Handles roads, buildings, public infrastructure"
   },
   {
     _id: "dept_waste",
     name: "Solid Waste Management Department",
-    keywords: ["clean", "garbage", "trash", "dirty", "litter", "waste", "dustbin", "sweeping", "disposal", "collection"],
     color: "from-pink-400 to-pink-600",
     description: "Handles waste collection, cleanliness, sanitation"
   }
 ];
 
+// Backend API URL - can be configured via environment variable
+// Vite uses import.meta.env instead of process.env
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 function SelectDept({ issueText, departmentId, setDepartmentId, error, setError }) {
   const { theme } = useTheme();
   const [isAnalyzingWithAI, setIsAnalyzingWithAI] = useState(false);
   const [aiAnalysisResult, setAiAnalysisResult] = useState(null);
+  const [validationResult, setValidationResult] = useState(null);
+  const [showManualSelection, setShowManualSelection] = useState(false);
+  const [canAnalyze, setCanAnalyze] = useState(false);
+  const [isValidGrievance, setIsValidGrievance] = useState(false);
   const debounceTimerRef = useRef(null);
   const lastAnalyzedTextRef = useRef('');
 
-  // AI-powered department detection using Claude API
-  const detectDepartmentWithAI = async (text) => {
-    if (!text.trim() || text.trim().length < 10) {
+  // Check if description is sufficient for AI analysis
+  useEffect(() => {
+    const trimmedText = issueText.trim();
+    if (trimmedText.length >= 20) {
+      setCanAnalyze(true);
+    } else {
+      setCanAnalyze(false);
+      setIsValidGrievance(false);
+      setValidationResult(null);
+      if (trimmedText.length > 0 && trimmedText.length < 20) {
+        setError("Please provide a detailed description (at least 20 characters) for AI analysis");
+      }
+    }
+  }, [issueText, setError]);
+
+  // Validate and classify the grievance via backend API
+  const validateAndClassifyGrievance = async (text) => {
+    if (!text.trim() || text.trim().length < 20) {
+      setValidationResult(null);
       setAiAnalysisResult(null);
       return null;
     }
@@ -63,105 +82,60 @@ function SelectDept({ issueText, departmentId, setDepartmentId, error, setError 
 
     lastAnalyzedTextRef.current = normalizedText;
     setIsAnalyzingWithAI(true);
+    setValidationResult(null);
+    setAiAnalysisResult(null);
+    setIsValidGrievance(false);
 
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      // 🔒 SECURE: Call backend API instead of OpenAI directly
+      // API key is safely stored on the server
+      const response = await fetch(`${API_URL}/api/validate-grievance`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 800,
-          messages: [
-            {
-              role: "user",
-              content: `You are a multilingual department classification AI for Indian public grievances.
-
-IMPORTANT: The user's complaint may be in ANY language including:
-- English
-- Hindi (हिंदी)
-- Hinglish (Hindi-English Mix) - e.g., "light nahi aa rahi", "bijli ka problem hai"
-- Marathi (मराठी)
-- Tamil (தமிழ்)
-- Telugu (తెలుగు)
-- Bengali (বাংলা)
-- Gujarati (ગુજરાતી)
-- Kannada (ಕನ್ನಡ)
-- Malayalam (മലയാളം)
-- Punjabi (ਪੰਜਾਬੀ)
-- Urdu (اردو)
-- Odia (ଓଡ଼ିଆ)
-- Or any mix of these languages (including Hinglish/Tanglish etc.)
-
-Available Departments:
-1. Electrical Maintenance Department - street lights, electrical poles, power supply, electricity issues, transformers
-2. Water Supply & Sewerage Department - water supply, pipes, leaks, taps, drains, sewers, plumbing, sewage
-3. Information Technology Services Department - wifi, internet, network, computers, connectivity, digital services
-4. Infrastructure Maintenance Department - roads, buildings, construction, repairs, damages, potholes, cracks
-5. Solid Waste Management Department - garbage, trash, cleanliness, waste collection, dustbins, disposal
-
-User's complaint: "${text}"
-
-ANALYZE THE COMPLAINT IN ANY LANGUAGE and match it to ONE department from the list above.
-
-Common terms to recognize (including Hinglish):
-- Light/बत्ती/light nahi aa rahi/बिजली गई/current nahi hai/light chali gayi = Electrical
-- Water/पानी/paani nahi aa raha/water supply band hai/नल से पानी नहीं/tap me paani nahi = Water Supply
-- Road/रस्ता/road kharab hai/गड्ढा है/pothole hai/सड़क टूटी/sadak tuti hui = Infrastructure
-- Garbage/कचरा/kachra pada hai/गंदगी/cleaning nahi ho rahi/garbage nahi uthaya = Waste Management
-- Internet/इंटरनेट/wifi nahi chal raha/network problem/internet slow hai/connection issue = IT Services
-
-Hinglish Examples (Hindi-English mix - VERY COMMON):
-- "Street light nahi jal rahi hai" = Electrical
-- "Paani ka bahut problem hai yaar" = Water Supply
-- "Road pe bada sa pothole aa gaya hai" = Infrastructure
-- "Kachra collection nahi ho raha properly" = Waste Management
-- "WiFi bahut slow chal raha hai" = IT Services
-- "Bijli ka pole gir gaya hai" = Electrical
-- "Naali overflow ho rahi hai" = Water Supply
-- "Footpath toot gaya hai" = Infrastructure
-- "Dustbin bahut ganda hai" = Waste Management
-
-Return ONLY this JSON (no other text):
-{
-  "department": "exact department name from list above",
-  "reason": "brief explanation in English",
-  "confidence": "high/medium/low"
-}`
-            }
-          ],
-        })
+        body: JSON.stringify({ text })
       });
 
       if (!response.ok) {
-        throw new Error('AI service unavailable');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Validation request failed');
       }
 
-      const data = await response.json();
-      let aiResponse = data.content[0].text.trim();
+      const analysis = await response.json();
       
-      // Remove markdown code blocks if present
-      aiResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      // Set validation result
+      setValidationResult(analysis);
+
+      if (!analysis.is_valid) {
+        // Invalid grievance
+        setIsValidGrievance(false);
+        setShowManualSelection(false);
+        setDepartmentId('');
+        setAiAnalysisResult(null);
+        setError(analysis.validation_message || "This does not appear to be a valid public grievance.");
+        return null;
+      }
+
+      // Valid grievance - proceed with classification
+      setIsValidGrievance(true);
       
-      const analysis = JSON.parse(aiResponse);
-      
-      // Find matching department (more flexible matching)
+      // Find matching department
       const matchedDept = DEPARTMENTS.find(d => {
         const deptNameLower = d.name.toLowerCase();
-        const analysisDeptLower = analysis.department.toLowerCase();
+        const analysisDeptLower = (analysis.department || '').toLowerCase();
         
-        // Try exact match first
         if (deptNameLower === analysisDeptLower) return true;
         
-        // Try partial matches for common variations
-        if (analysisDeptLower.includes('electrical') && deptNameLower.includes('electrical')) return true;
-        if (analysisDeptLower.includes('water') && deptNameLower.includes('water')) return true;
-        if (analysisDeptLower.includes('it ') || analysisDeptLower.includes('information')) {
-          if (deptNameLower.includes('information')) return true;
-        }
-        if (analysisDeptLower.includes('infrastructure') && deptNameLower.includes('infrastructure')) return true;
-        if (analysisDeptLower.includes('waste') && deptNameLower.includes('waste')) return true;
+        const deptKeywords = deptNameLower.split(' ');
+        const analysisKeywords = analysisDeptLower.split(' ');
+        
+        if (deptKeywords.some(kw => kw === 'electrical') && analysisKeywords.some(kw => kw === 'electrical')) return true;
+        if (deptKeywords.some(kw => kw === 'water') && analysisKeywords.some(kw => kw === 'water')) return true;
+        if (deptKeywords.some(kw => kw === 'information' || kw === 'technology') && 
+            analysisKeywords.some(kw => kw === 'information' || kw === 'technology')) return true;
+        if (deptKeywords.some(kw => kw === 'infrastructure') && analysisKeywords.some(kw => kw === 'infrastructure')) return true;
+        if (deptKeywords.some(kw => kw === 'waste') && analysisKeywords.some(kw => kw === 'waste')) return true;
         
         return false;
       });
@@ -170,176 +144,65 @@ Return ONLY this JSON (no other text):
         const result = {
           ...analysis,
           departmentId: matchedDept._id,
-          department: matchedDept.name // Ensure we use the exact department name
+          department: matchedDept.name
         };
         setAiAnalysisResult(result);
         setDepartmentId(matchedDept._id);
+        
+        // Hide manual selection if AI confidence is medium or high
+        if (analysis.confidence === 'high' || analysis.confidence === 'medium') {
+          setShowManualSelection(false);
+        } else {
+          setShowManualSelection(true);
+        }
+        
         if (error) setError("");
         return matchedDept._id;
+      } else {
+        // Classified as valid but couldn't match department
+        setShowManualSelection(true);
+        setError("Valid grievance detected, but please select the appropriate department manually.");
+        return null;
       }
       
-      // If no match, try keyword fallback
-      return detectDepartmentByKeywords(text);
     } catch (error) {
-      console.error("AI department detection failed:", error);
-      // Fallback to keyword-based detection
-      return detectDepartmentByKeywords(text);
+      console.error("Backend validation failed:", error);
+      
+      // Check for specific errors
+      if (error.message?.includes('Failed to fetch')) {
+        setError("Unable to connect to validation server. Please check if the backend is running.");
+      } else {
+        setError(error.message || "AI validation failed. Please try again.");
+      }
+      
+      setIsValidGrievance(false);
+      setShowManualSelection(false);
+      return null;
     } finally {
       setIsAnalyzingWithAI(false);
     }
   };
 
-  // Fallback keyword-based detection with multilingual support including Hinglish
-  const detectDepartmentByKeywords = (text) => {
-    const lowerText = text.toLowerCase();
-    let maxScore = 0;
-    let bestMatch = null;
-
-    // Extended multilingual keywords including Hinglish
-    const multilingualKeywords = {
-      electrical: [
-        // English
-        'light', 'fan', 'power', 'electric', 'current', 'wire', 'bulb', 'switch', 'electricity', 'voltage', 'transformer', 'pole',
-        // Hindi
-        'बत्ती', 'लाइट', 'बिजली', 'करंट', 'पंखा', 'ट्रांसफार्मर', 'प्रकाश', 'वीज',
-        // Hinglish (romanized Hindi + mixed)
-        'batti', 'bijli', 'current', 'light nahi', 'bijli nahi', 'current nahi', 'light chali gayi', 
-        'bijli gayi', 'light aa rahi', 'power cut', 'transformer', 'pole gir gaya', 'pankha',
-        'street light', 'light jal rahi', 'bulb phut gaya',
-        // Telugu
-        'లైట్', 'విద్యుత్', 'కరెంట్', 'ఫ్యాన్',
-        // Kannada
-        'ಬೆಳಕು', 'ವಿದ್ಯುತ್', 'ಫ್ಯಾನ್',
-        // Malayalam
-        'വെളിച്ചം', 'വൈദ്യുതി', 'ഫാൻ'
-      ],
-      water: [
-        // English
-        'water', 'pipe', 'leak', 'tap', 'drain', 'sewer', 'plumbing', 'sewage', 'sanitation', 'overflow', 'blockage',
-        // Hindi
-        'पानी', 'नल', 'पाइप', 'लीक', 'नाली', 'जल', 'पाणी',
-        // Hinglish
-        'paani', 'pani', 'nal', 'pipe', 'leak', 'naali', 'nali', 'drainage', 'paani nahi', 
-        'water nahi', 'nal se paani', 'pipe phut gaya', 'water supply', 'paani aa raha',
-        'water leakage', 'naali overflow', 'gutter', 'sewerage', 'drain block',
-        'tap se paani nahi', 'supply band hai',
-        // Telugu
-        'నీరు', 'కుళాయి', 'పైపు', 'డ్రైనేజీ',
-        // Kannada
-        'ನೀರು', 'ಟ್ಯಾಪ್', 'ಪೈಪ್',
-        // Malayalam
-        'വെള്ളം', 'കുഴൽ', 'ടാപ്പ്'
-      ],
-      it: [
-        // English
-        'wifi', 'internet', 'network', 'computer', 'connection', 'server', 'website', 'online', 'digital', 'portal',
-        // Hindi
-        'इंटरनेट', 'वाईफाई', 'कंप्यूटर', 'नेटवर्क',
-        // Hinglish
-        'wifi nahi', 'internet slow', 'network problem', 'connection issue', 'wifi chal raha',
-        'internet nahi chal raha', 'broadband', 'wifi ka problem', 'net slow hai',
-        'website nahi khul raha', 'online nahi ho raha', 'portal',
-        // Telugu
-        'ఇంటర్నెట్', 'వైఫై', 'కంప్యూటర్',
-        // Kannada
-        'ಇಂಟರ್ನೆಟ್', 'ವೈಫೈ',
-        // Malayalam
-        'ഇന്റർനെറ്റ്', 'വൈഫൈ'
-      ],
-      infrastructure: [
-        // English
-        'repair', 'broken', 'damage', 'fix', 'maintenance', 'road', 'building', 'construction', 'crack', 'pothole', 'pavement',
-        // Hindi
-        'रोड', 'रस्ता', 'गड्ढा', 'सड़क', 'मरम्मत', 'मार्ग', 'इमारत',
-        // Hinglish
-        'road', 'sadak', 'rasta', 'pothole', 'gadda', 'gaddha', 'road kharab', 'sadak tuti',
-        'footpath', 'pavement', 'road repair', 'sadak ki halat', 'road condition',
-        'building', 'construction', 'crack aa gaya', 'toot gaya', 'damage hua',
-        'maintenance', 'repair', 'broken hai', 'kharab hai',
-        // Telugu
-        'రోడ్డు', 'గొయ్యి', 'బిల్డింగ్',
-        // Kannada
-        'ರಸ್ತೆ', 'ಕುಂಡಿ', 'ಕಟ್ಟಡ',
-        // Malayalam
-        'റോഡ്', 'കുഴി', 'കെട്ടിടം'
-      ],
-      waste: [
-        // English
-        'clean', 'garbage', 'trash', 'dirty', 'litter', 'waste', 'dustbin', 'sweeping', 'disposal', 'collection',
-        // Hindi
-        'कचरा', 'गंदगी', 'सफाई', 'कूड़ा', 'डस्टबिन', 'कूड़ादान', 'स्वच्छता',
-        // Hinglish
-        'kachra', 'kachraa', 'kuda', 'garbage', 'gandagi', 'safai', 'dustbin', 'cleaning',
-        'kachra collection', 'garbage nahi uthaya', 'dustbin bhara hua', 'gandagi hai',
-        'safai nahi ho rahi', 'waste collection', 'kuda pada hai', 'sweeper nahi aaya',
-        'cleaning nahi hui', 'ganda hai', 'dirty hai', 'litter pada hai',
-        // Telugu
-        'చెత్త', 'వ్యర్థాలు', 'శుభ్రత',
-        // Kannada
-        'ಕಸ', 'ಕೊಳಕು', 'ಸ್ವಚ್ಛತೆ',
-        // Malayalam
-        'മാലിന്യം', 'മാലിന്യനിര്‍മാര്‍ജനം'
-      ]
-    };
-
-    for (let dept of DEPARTMENTS) {
-      let score = 0;
-      let categoryKey = '';
-      
-      // Determine category
-      if (dept.name.includes('Electrical')) categoryKey = 'electrical';
-      else if (dept.name.includes('Water')) categoryKey = 'water';
-      else if (dept.name.includes('Information')) categoryKey = 'it';
-      else if (dept.name.includes('Infrastructure')) categoryKey = 'infrastructure';
-      else if (dept.name.includes('Waste')) categoryKey = 'waste';
-      
-      // Check both original keywords and multilingual keywords
-      const allKeywords = [...dept.keywords, ...(multilingualKeywords[categoryKey] || [])];
-      
-      allKeywords.forEach(keyword => {
-        if (lowerText.includes(keyword.toLowerCase())) {
-          score++;
-        }
-      });
-      
-      if (score > maxScore) {
-        maxScore = score;
-        bestMatch = dept;
-      }
-    }
-
-    if (bestMatch && maxScore > 0) {
-      const result = {
-        department: bestMatch.name,
-        reason: `Detected based on ${maxScore} keyword match${maxScore > 1 ? 'es' : ''} in your description`,
-        confidence: maxScore >= 3 ? 'high' : maxScore >= 2 ? 'medium' : 'low',
-        departmentId: bestMatch._id
-      };
-      setAiAnalysisResult(result);
-      setDepartmentId(bestMatch._id);
-      if (error) setError("");
-      return bestMatch._id;
-    }
-
-    return null;
-  };
-
-  // Auto-detect department when issue text changes
+  // Auto-validate and classify when issue text changes
   useEffect(() => {
-    // Clear any existing timeout
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
-    // Only analyze if text is long enough and hasn't been analyzed yet
     const normalizedText = issueText.trim().toLowerCase();
-    if (issueText.trim().length >= 10 && normalizedText !== lastAnalyzedTextRef.current) {
+    if (issueText.trim().length >= 20 && normalizedText !== lastAnalyzedTextRef.current) {
       debounceTimerRef.current = setTimeout(() => {
-        detectDepartmentWithAI(issueText);
-      }, 1500); // Wait 1.5 seconds after user stops typing
-    } else if (issueText.trim().length < 10) {
+        validateAndClassifyGrievance(issueText);
+      }, 2000);
+    } else if (issueText.trim().length < 20) {
+      setValidationResult(null);
       setAiAnalysisResult(null);
+      setShowManualSelection(false);
+      setIsValidGrievance(false);
       lastAnalyzedTextRef.current = '';
+      if (departmentId) {
+        setDepartmentId('');
+      }
     }
 
     return () => {
@@ -349,8 +212,12 @@ Return ONLY this JSON (no other text):
     };
   }, [issueText]);
 
-  // Manual department selection
+  // Manual department selection - only allowed if validated
   const handleDepartmentChange = (e) => {
+    if (!isValidGrievance) {
+      return;
+    }
+
     const newDeptId = e.target.value;
     setDepartmentId(newDeptId);
     
@@ -360,7 +227,8 @@ Return ONLY this JSON (no other text):
         department: dept.name,
         reason: "Manually selected by user",
         confidence: "manual",
-        departmentId: newDeptId
+        departmentId: newDeptId,
+        is_valid: true
       });
     } else {
       setAiAnalysisResult(null);
@@ -371,11 +239,108 @@ Return ONLY this JSON (no other text):
     }
   };
 
+  // Allow user to change AI selection
+  const handleChangeSelection = () => {
+    setShowManualSelection(true);
+  };
+
+  // Retry validation
+  const handleRetryValidation = () => {
+    lastAnalyzedTextRef.current = '';
+    setValidationResult(null);
+    setAiAnalysisResult(null);
+    setError("");
+    if (issueText.trim().length >= 20) {
+      validateAndClassifyGrievance(issueText);
+    }
+  };
+
   return (
     <div>
-      {/* AI Analysis Result */}
-      {aiAnalysisResult && (
-        <div className={`mb-4 p-4 rounded-lg border ${
+      {/* Validation Message - Description Required */}
+      {!canAnalyze && issueText.trim().length > 0 && issueText.trim().length < 20 && (
+        <div className={`mb-4 p-4 rounded-lg border-2 border-orange-500 bg-orange-500/10`}>
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} className="text-orange-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold mb-1">Description Too Short</p>
+              <p className="text-sm">
+                Please provide a detailed description (at least 20 characters) so our AI can validate and classify your complaint.
+              </p>
+              <p className="text-xs mt-2 opacity-75">
+                Current length: {issueText.trim().length} / 20 characters
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Analysis in Progress */}
+      {isAnalyzingWithAI && (
+        <div className={`mb-4 p-4 rounded-lg border-2 border-blue-500 bg-blue-500/10`}>
+          <div className="flex items-start gap-3">
+            <Sparkles size={20} className="text-blue-500 animate-spin flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold mb-1">🤖 AI Validating Your Complaint...</p>
+              <p className="text-sm">
+                Checking if this is a valid public grievance and determining the appropriate department.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INVALID Grievance Result */}
+      {validationResult && !validationResult.is_valid && !isAnalyzingWithAI && (
+        <div className={`mb-4 p-4 rounded-lg border-2 border-red-500 bg-red-500/10`}>
+          <div className="flex items-start gap-3">
+            <XCircle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold mb-2 text-red-500">❌ Invalid Public Grievance</p>
+              <p className="text-sm mb-3">
+                {validationResult.validation_message}
+              </p>
+              <div className={`p-3 rounded-lg mb-3 ${
+                theme === "dark" ? "bg-slate-800" : "bg-white"
+              }`}>
+                <p className="text-xs font-semibold mb-1">Why was this rejected?</p>
+                <p className="text-xs">{validationResult.reason}</p>
+              </div>
+              <div className={`p-3 rounded-lg border ${
+                theme === "dark" ? "border-gray-600 bg-slate-800/50" : "border-gray-300 bg-gray-50"
+              }`}>
+                <p className="text-xs font-semibold mb-2 flex items-center gap-1">
+                  <Shield size={12} />
+                  Valid Public Grievances Include:
+                </p>
+                <ul className="text-xs space-y-1 ml-4 list-disc">
+                  <li>Street light or electrical infrastructure issues</li>
+                  <li>Water supply or drainage problems</li>
+                  <li>Road damage or potholes</li>
+                  <li>Garbage collection issues</li>
+                  <li>Public wifi or digital service problems</li>
+                  <li>Any civic amenity or public infrastructure issue</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={handleRetryValidation}
+                className={`mt-3 w-full text-sm py-2 px-4 rounded-lg transition-colors ${
+                  theme === "dark"
+                    ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
+                    : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+                }`}
+              >
+                Retry Validation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VALID Grievance - AI Analysis Result */}
+      {aiAnalysisResult && validationResult?.is_valid && !isAnalyzingWithAI && (
+        <div className={`mb-4 p-4 rounded-lg border-2 ${
           aiAnalysisResult.confidence === 'high' 
             ? 'border-green-500 bg-green-500/10'
             : aiAnalysisResult.confidence === 'medium'
@@ -385,74 +350,146 @@ Return ONLY this JSON (no other text):
             : 'border-orange-500 bg-orange-500/10'
         }`}>
           <div className="flex items-start gap-3">
-            <Brain size={20} className={
-              aiAnalysisResult.confidence === 'high' 
-                ? 'text-green-500'
-                : aiAnalysisResult.confidence === 'medium'
-                ? 'text-yellow-500'
-                : aiAnalysisResult.confidence === 'manual'
-                ? 'text-blue-500'
-                : 'text-orange-500'
-            } />
+            <div className="flex-shrink-0">
+              {aiAnalysisResult.confidence === 'manual' ? (
+                <Edit3 size={20} className="text-blue-500" />
+              ) : (
+                <Brain size={20} className={
+                  aiAnalysisResult.confidence === 'high' 
+                    ? 'text-green-500'
+                    : aiAnalysisResult.confidence === 'medium'
+                    ? 'text-yellow-500'
+                    : 'text-orange-500'
+                } />
+              )}
+            </div>
             <div className="flex-1">
-              <p className="text-sm font-semibold mb-1">
-                {aiAnalysisResult.confidence === 'manual' ? '✓ Manual Selection' : '🤖 AI Analysis'}
+              <p className="text-sm font-semibold mb-1 flex items-center gap-2">
+                {aiAnalysisResult.confidence === 'manual' 
+                  ? '✓ Manual Selection' 
+                  : '✅ Valid Grievance - Department Classified'}
               </p>
-              <p className="text-sm">{aiAnalysisResult.reason}</p>
-              {aiAnalysisResult.confidence !== 'manual' && (
-                <p className="text-xs mt-1 opacity-75">
-                  Confidence: {aiAnalysisResult.confidence.toUpperCase()}
+              {validationResult?.validation_message && aiAnalysisResult.confidence !== 'manual' && (
+                <p className="text-xs mb-2 opacity-75">
+                  {validationResult.validation_message}
                 </p>
+              )}
+              <p className="text-sm mb-2">
+                <strong>Department:</strong> {aiAnalysisResult.department}
+              </p>
+              <p className="text-sm mb-2">
+                <strong>Analysis:</strong> {aiAnalysisResult.reason}
+              </p>
+              {aiAnalysisResult.confidence !== 'manual' && (
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-current/20">
+                  <p className="text-xs opacity-75">
+                    Confidence: <span className="font-semibold uppercase">{aiAnalysisResult.confidence}</span>
+                    <span className="ml-2 text-xs opacity-60">🔒 Secure Backend</span>
+                  </p>
+                  {!showManualSelection && (
+                    <button
+                      type="button"
+                      onClick={handleChangeSelection}
+                      className={`text-xs px-3 py-1 rounded-md transition-colors ${
+                        theme === "dark"
+                          ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
+                          : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+                      }`}
+                    >
+                      Change Department
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Department Selector */}
-      <div>
-        <label className="block text-sm font-semibold mb-2">
-          Department <span className="text-red-500">*</span>
-          {isAnalyzingWithAI && (
-            <span className="ml-2 text-xs text-blue-500 inline-flex items-center gap-1">
-              <Sparkles size={12} className="animate-spin" />
-              AI analyzing...
-            </span>
-          )}
-        </label>
-        <select
-          value={departmentId}
-          onChange={handleDepartmentChange}
-          className={`w-full px-4 py-3 rounded-lg border-2 transition-all outline-none ${
-            error
-              ? "border-red-500 focus:border-red-600"
-              : theme === "dark"
-              ? "bg-slate-700 border-gray-600 focus:border-blue-500 text-white"
-              : "bg-white border-gray-300 focus:border-blue-500 text-black"
-          }`}
-        >
-          <option value="">-- AI will detect or Select Manually --</option>
-          {DEPARTMENTS.map((dept) => (
-            <option key={dept._id} value={dept._id}>
-              {dept.name}
-            </option>
-          ))}
-        </select>
-        {error && (
-          <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
-            <AlertCircle size={14} /> {error}
-          </p>
-        )}
-        {departmentId && !error && (
-          <p className={`text-sm mt-1 flex items-center gap-1 ${
-            theme === "dark" ? "text-green-400" : "text-green-600"
-          }`}>
-            <CheckCircle2 size={14} /> Department selected: {
-              DEPARTMENTS.find(d => d._id === departmentId)?.name
-            }
-          </p>
-        )}
-      </div>
+      {/* Department Selector - Only shown for valid grievances */}
+      {showManualSelection && isValidGrievance ? (
+        <div>
+          <label className="block text-sm font-semibold mb-2">
+            Select Department <span className="text-red-500">*</span>
+          </label>
+          <select
+            value={departmentId}
+            onChange={handleDepartmentChange}
+            className={`w-full px-4 py-3 rounded-lg border-2 transition-all outline-none ${
+              error
+                ? "border-red-500 focus:border-red-600"
+                : theme === "dark"
+                ? "bg-slate-700 border-gray-600 focus:border-blue-500 text-white"
+                : "bg-white border-gray-300 focus:border-blue-500 text-black"
+            }`}
+          >
+            <option value="">-- Select Department --</option>
+            {DEPARTMENTS.map((dept) => (
+              <option key={dept._id} value={dept._id}>
+                {dept.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : !showManualSelection && isValidGrievance && departmentId ? (
+        <div className={`p-4 rounded-lg border-2 ${
+          theme === "dark"
+            ? "bg-slate-700/50 border-gray-600"
+            : "bg-gray-50 border-gray-200"
+        }`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold mb-1">Selected Department</p>
+              <p className={`text-lg font-bold ${
+                theme === "dark" ? "text-green-400" : "text-green-600"
+              }`}>
+                {DEPARTMENTS.find(d => d._id === departmentId)?.name}
+              </p>
+            </div>
+            <CheckCircle2 size={32} className={
+              theme === "dark" ? "text-green-400" : "text-green-600"
+            } />
+          </div>
+          <button
+            type="button"
+            onClick={handleChangeSelection}
+            className={`mt-3 w-full text-sm py-2 px-4 rounded-lg transition-colors ${
+              theme === "dark"
+                ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
+                : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+            }`}
+          >
+            Change Department
+          </button>
+        </div>
+      ) : (
+        <div className={`p-4 rounded-lg border-2 border-dashed ${
+          theme === "dark"
+            ? "bg-slate-800/50 border-gray-600 text-gray-400"
+            : "bg-gray-50 border-gray-300 text-gray-500"
+        }`}>
+          <div className="flex items-center gap-3">
+            <Lock size={20} className="flex-shrink-0" />
+            <div className="text-sm">
+              <p className="font-semibold mb-1">Department Selection Locked</p>
+              <p className="text-xs">
+                {!canAnalyze 
+                  ? "Complete the description (min 20 characters) to unlock"
+                  : "AI validation in progress..."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Message */}
+      {departmentId && !error && isValidGrievance && (
+        <p className={`text-sm mt-2 flex items-center gap-1 ${
+          theme === "dark" ? "text-green-400" : "text-green-600"
+        }`}>
+          <CheckCircle2 size={14} /> Valid grievance - Department assigned
+        </p>
+      )}
     </div>
   );
 }
